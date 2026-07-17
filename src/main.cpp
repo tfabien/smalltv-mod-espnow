@@ -198,7 +198,8 @@ void setup() {
   Serial.println("[boot] done");
 
   if (netMode() == NET_AP) {
-    gfxApInfo(g_settings.apSsid.c_str(), g_settings.apPass.c_str(), netIP().c_str());
+    gfxApInfo(g_settings.apSsid.c_str(), g_settings.apPass.c_str(), netIP().c_str(),
+              netMac().c_str(), netChannel());
   } else if (g_safeMode) {
     // Last boot crashed: show the crash address (persistent) and keep the web
     // server up for OTA recovery — don't enter the render path that crashed.

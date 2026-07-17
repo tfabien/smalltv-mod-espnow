@@ -66,13 +66,13 @@ static void handleStatus() {
   o["version"] = FW_VERSION;
   o["repo"] = REPO_URL;
   if (g_updateMsg.length()) o["updateMsg"] = g_updateMsg;
-  o["mode"] = (netMode() == NET_AP) ? "ap" : "sta";
+  o["mode"] = netEspNowOnly() ? "espnow" : (netMode() == NET_AP) ? "ap" : "sta";
   o["connected"] = netConnected();
   o["ssid"] = netSSID();
   o["ip"] = netIP();
   o["rssi"] = netRSSI();
-  o["mac"] = WiFi.macAddress();   // for pairing an ESP-NOW bridge (see UsageClient)
-  o["chan"] = WiFi.channel();     // the bridge must be pinned to this same channel
+  o["mac"] = netMac();       // for pairing an ESP-NOW bridge (see UsageClient)
+  o["chan"] = netChannel();  // the bridge must be pinned to this same channel
   o["heap"] = ESP.getFreeHeap();
   o["maxblk"] = platformMaxFreeBlock();     // largest contiguous block (TLS handshake needs one)
   o["contstk"] = platformFreeContStack();   // primary stack headroom (ESP8266)

@@ -172,6 +172,14 @@
 // ---------------------------------------------------------------------------
 #define DEFAULT_AP_SSID      "SmallTV-Setup"
 #define DEFAULT_AP_PASS      ""              // empty => open AP
+
+// ESP-NOW-only operation (no Wi-Fi ever configured): the setup AP is pinned to
+// this fixed channel so a bridge (src/bridge.cpp) can target it deterministically,
+// and it self-closes after this long so an open, permanent Wi-Fi hotspot doesn't
+// linger — see Net.cpp. Only applies when zero networks are saved; a real,
+// still-in-progress captive-portal setup is never cut short by this.
+#define AP_ESPNOW_CHANNEL     1
+#define AP_ESPNOW_TIMEOUT_MS  (15UL * 60 * 1000)
 #define DEFAULT_HOSTNAME     "smalltv"
 #define DEFAULT_POLL_SEC      120            // how often to refresh data
 #define TICKER_RETRY_SEC       12            // fast retry after a failed/skipped fetch

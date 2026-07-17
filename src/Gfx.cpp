@@ -121,21 +121,30 @@ void gfxBoot(const char* line1, const char* line2) {
   if (line2 && line2[0]) gfxDrawCentered(line2, 130, 2, C_GRAY);
 }
 
-void gfxApInfo(const char* ssid, const char* pass, const char* ip) {
+void gfxApInfo(const char* ssid, const char* pass, const char* ip, const char* mac, int chan) {
   if (!gfx) return;
   gfx->fillScreen(C_BLACK);
-  gfxDrawCentered("SETUP MODE", 18, 3, C_YELLOW);
-  gfxDrawCentered("Join WiFi:", 64, 2, C_GRAY);
-  gfxDrawCentered(ssid, 88, gfxFitSize(ssid, 232, 3), C_WHITE);
+  gfxDrawCentered("SETUP MODE", 8, 3, C_YELLOW);
+  gfxDrawCentered("Join WiFi:", 40, 2, C_GRAY);
+  gfxDrawCentered(ssid, 58, gfxFitSize(ssid, 232, 3), C_WHITE);
   if (pass && pass[0]) {
-    gfxDrawCentered("Password:", 124, 2, C_GRAY);
-    gfxDrawCentered(pass, 146, gfxFitSize(pass, 232, 2), C_WHITE);
+    gfxDrawCentered("Password:", 90, 2, C_GRAY);
+    gfxDrawCentered(pass, 108, gfxFitSize(pass, 232, 2), C_WHITE);
   } else {
-    gfxDrawCentered("(open network)", 124, 2, C_GRAY);
+    gfxDrawCentered("(open network)", 90, 2, C_GRAY);
   }
-  gfxDrawCentered("Then open:", 182, 2, C_GRAY);
+  gfxDrawCentered("Then open:", 134, 2, C_GRAY);
   String url = String("http://") + ip;
-  gfxDrawCentered(url.c_str(), 206, gfxFitSize(url.c_str(), 232, 2), C_GREEN);
+  gfxDrawCentered(url.c_str(), 152, gfxFitSize(url.c_str(), 232, 2), C_GREEN);
+
+  // For an ESP-NOW bridge (no WiFi/browser needed to read these off the device):
+  // this AP drops as soon as a bridge's first packet arrives (or after
+  // AP_ESPNOW_TIMEOUT_MS with none), falling back to an idle radio on this
+  // same channel so a bridge paired against this MAC keeps working.
+  char chanLabel[24];
+  snprintf(chanLabel, sizeof(chanLabel), "ESP-NOW ch%d", chan);
+  gfxDrawCentered(chanLabel, 178, 2, C_GRAY);
+  gfxDrawCentered(mac, 196, gfxFitSize(mac, 232, 2), C_YELLOW);
 }
 
 void gfxStaInfo(const char* ssid, const char* ip, const char* host) {

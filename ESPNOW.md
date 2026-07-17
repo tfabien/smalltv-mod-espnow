@@ -71,14 +71,23 @@ all the bridge looks like to them.
   the two values the bridge needs to pair without opening a serial console.
 - **`src/bridge.cpp`** (new) — the bridge firmware itself, board-agnostic on
   the receiving end. Reads newline-terminated JSON lines from `Serial` and
-  forwards each as one ESP-NOW packet to a hardcoded peer MAC/channel. Edit
-  the `PEER_MAC` / `WIFI_CHANNEL` constants at the top of the file before
-  building — see below.
+  forwards each as one ESP-NOW packet to its paired peer. Pairing is a serial
+  command (`PAIR AA:BB:CC:DD:EE:FF <chan>`, see `tools/pair_bridge.py`) saved
+  to NVS — no reflash needed to point it at a different SmallTV or to follow
+  a channel change. `DEFAULT_PEER_MAC`/`DEFAULT_CHANNEL` at the top of the
+  file are only the first-boot fallback before anything's been paired.
+- **`tools/pair_bridge.py`** (new) — sends that `PAIR` command over serial.
 - **`platformio.ini`** — new `[env:espnow_bridge]` (plain ESP32 dev board,
   builds only `bridge.cpp`, same on/off pattern as the existing
   `smalltv_loader` env). Also set `WITH_TICKER=0` / `WITH_RADAR=0` on the
   `smalltv` env to free up flash headroom for the ESP8266 build — re-enable if
   you need those features too.
+- **`src/Net.{h,cpp}`, `src/Gfx.{h,cpp}`, `src/config.h`** — the setup AP is
+  now pinned to a fixed channel (`AP_ESPNOW_CHANNEL`) and shows its MAC/channel
+  directly on-screen (`gfxApInfo`); if zero networks are saved it self-closes
+  after `AP_ESPNOW_TIMEOUT_MS` and drops to an idle, ESP-NOW-only radio on the
+  same channel (`netEspNowOnly()`) instead of showing the join-my-AP screen
+  forever — see "Option B" below.
 
 No changes to the usage payload contract (`{s,sr,w,wr,st,ok}`) and no changes
 to `clawdmeter-daemon` itself — it already writes exactly this over
@@ -86,22 +95,77 @@ to `clawdmeter-daemon` itself — it already writes exactly this over
 
 ## Setup
 
-1. Flash this firmware onto your SmallTV as usual (`pio run -e <smalltv |
-   smalltv_c2 | smalltv_esp32> -t upload`, or OTA via `/update`). Once it's on
-   your Wi-Fi, open `http://<its-ip>/api/status` and note `mac` and `chan`.
-2. Edit `PEER_MAC` and `WIFI_CHANNEL` at the top of `src/bridge.cpp` with
-   those values.
-3. Flash `src/bridge.cpp` onto a spare ESP32 dev board:
-   `pio run -e espnow_bridge -t upload`.
+### Option A — SmallTV already on your Wi-Fi
+
+1. Flash this firmware as usual (`pio run -e <smalltv | smalltv_c2 |
+   smalltv_esp32> -t upload`, or OTA via `/update`). Once it's on your Wi-Fi,
+   open `http://<its-ip>/api/status` and note `mac` and `chan`.
+2. Flash the bridge onto a spare ESP32 dev board (only once — no need to
+   rebuild it again to change pairing): `pio run -e espnow_bridge -t upload`.
+3. Pair it: `python tools/pair_bridge.py COM3 <mac> <chan>` — saved to the
+   bridge's NVS, survives reboots.
 4. Plug that board into the machine running clawdmeter-daemon and run it with
    `--serial <bridge's COM port>` instead of `--push` / `--serve`.
 
+### Option B — never joining Wi-Fi at all
+
+For a locked-down/filtered network where you'd rather not put the SmallTV on
+it at all: leave the device's Wi-Fi settings empty (factory default, or
+`/api/factory` to reset them). On boot it opens its `SmallTV-Setup` AP as
+always, but the setup screen now also prints its **MAC and channel directly
+on the display** — no browser, no network, nothing to join:
+
+```
+ESP-NOW AA:BB:CC:DD:EE:FF ch1
+```
+
+The AP is pinned to a fixed channel (`AP_ESPNOW_CHANNEL` in `config.h`,
+default **1**) instead of whatever the Arduino core would pick, so you can
+hardcode the bridge's channel before ever seeing the screen if you want.
+
+1. Read the MAC off the screen (channel is already `1` by default, matching
+   `AP_ESPNOW_CHANNEL`).
+2. Flash the bridge if you haven't already (`pio run -e espnow_bridge -t
+   upload`), pair it (`python tools/pair_bridge.py COM3 <mac> 1`), and point
+   the daemon's `--serial` at it, same as option A.
+3. After `AP_ESPNOW_TIMEOUT_MS` (default **15 minutes**, in `config.h`) with
+   still no Wi-Fi configured, the device closes its setup AP on its own —
+   no open hotspot left running — and drops to an idle radio pinned to the
+   same channel, purely receiving ESP-NOW. The active display mode (usage /
+   ticker / radar) then renders normally, fed only by whatever the bridge
+   sends. This only ever triggers when **zero** networks are saved; a
+   still-in-progress captive-portal setup is never cut short by it.
+
+If you want the MAC/channel again later, just factory-reset or wait for a
+reboot — the setup screen (and its 15-minute window) reappears each time
+there's no saved Wi-Fi.
+
+## Testing without the daemon
+
+`tools/send_test_usage.py` writes one usage-contract JSON line straight to a
+serial port — point it at the bridge's COM port to check the whole
+daemon → bridge → ESP-NOW → SmallTV chain without running the real daemon or
+needing a valid Claude token:
+
+```
+pip install pyserial
+python tools/send_test_usage.py COM3
+python tools/send_test_usage.py COM3 --s 90 --w 50 --st rejected
+python tools/send_test_usage.py COM3 --ok false     # simulate "no data"
+```
+
+The SmallTV's screen should update within a second (once its active mode is
+Usage — the carousel will get there on its own timer, or set the mode
+directly via `/api/config`). This is exactly how the initial pairing test in
+this fork's history was done, before wiring up the real daemon.
+
 ## Known limitation
 
-ESP-NOW does not hop channels. The bridge is pinned to whatever channel your
-router had the SmallTV on *at flash time*. If your router changes channel
-(auto-channel, a reboot, a firmware update), the link silently stops — re-check
-`/api/status` for the new `chan` and reflash the bridge. This hasn't been
-worth automating yet since it's just being tested; a fix would have the
-SmallTV broadcast its current channel (e.g. in its mDNS TXT record) and the
-bridge read it back instead of hardcoding it.
+ESP-NOW does not hop channels. The bridge is pinned to whatever channel it
+was last paired with. If your router changes channel (auto-channel, a
+reboot, a firmware update), the link silently stops — re-check `/api/status`
+for the new `chan` and re-pair with `tools/pair_bridge.py` (no reflash). This
+hasn't been worth automating further since it's just being tested; a fix
+would have the SmallTV broadcast its current channel (e.g. in its mDNS TXT
+record) and the bridge read it back on its own instead of needing a manual
+re-pair.

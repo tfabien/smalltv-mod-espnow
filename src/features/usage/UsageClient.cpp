@@ -1,5 +1,6 @@
 #include "UsageClient.h"
 #include "Platform.h"
+#include "Net.h"
 #include <ArduinoJson.h>
 #include <math.h>
 
@@ -83,6 +84,7 @@ static void onEspNowRecv(uint8_t* mac, uint8_t* data, uint8_t len) {
   memcpy(buf, data, n);
   buf[n] = 0;
   usageApply(String(buf));
+  netNotifyEspNowActivity();
 }
 
 void usageEspNowBegin() {
@@ -107,6 +109,7 @@ static void onEspNowRecv(const esp_now_recv_info* info, const uint8_t* data, int
   memcpy(buf, data, n);
   buf[n] = 0;
   usageApply(String(buf));
+  netNotifyEspNowActivity();
 }
 
 void usageEspNowBegin() {
