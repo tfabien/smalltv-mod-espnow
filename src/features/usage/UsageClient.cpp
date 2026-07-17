@@ -13,6 +13,7 @@ void usageInit(const Settings& s) {
   g_usage.clear();
   g_nextPollMs = millis();
   g_inited = true;
+  usageEspNowBegin();
 }
 
 void usageForceRefresh() { g_nextPollMs = millis(); }
@@ -63,6 +64,34 @@ bool usageApply(const String& body) {
   if (deserializeJson(doc, body, DeserializationOption::Filter(filter))) return false;
   return applyUsageDoc(g_usage, doc);
 }
+
+// ---- ESP-NOW receive: bridge relays the daemon's serial JSON lines here ----
+// Only wired up on the ESP8266 target, whose USB port has no UART lines (see
+// README's flashing table) — the ESP32/ESP32-C2 targets have a real USB-serial
+// chip and use the daemon's --serial transport directly, no bridge needed.
+#if defined(SMALLTV_ESP8266)
+#include <espnow.h>
+
+static void onEspNowRecv(uint8_t* mac, uint8_t* data, uint8_t len) {
+  (void)mac;
+  char buf[192];
+  size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+  memcpy(buf, data, n);
+  buf[n] = 0;
+  usageApply(String(buf));
+}
+
+void usageEspNowBegin() {
+  static bool inited = false;
+  if (inited) return;
+  if (esp_now_init() != 0) return;
+  esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
+  esp_now_register_recv_cb(onEspNowRecv);
+  inited = true;
+}
+#else
+void usageEspNowBegin() {}
+#endif
 
 // ---- one HTTP(S) GET + parse (mirrors StockClient::fetchUrl) ----------------
 static bool fetchUsage(const Settings& s) {

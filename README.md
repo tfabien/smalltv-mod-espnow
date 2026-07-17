@@ -17,6 +17,8 @@
 
 > Not affiliated with GeekMagic or Anthropic. This firmware replaces the stock firmware entirely.
 
+> **This is a fork** ([tfabien/smalltv-mod-espnow](https://github.com/tfabien/smalltv-mod-espnow)) of [giovi321/smalltv-mod](https://github.com/giovi321/smalltv-mod), adding an ESP-NOW receive path for the Claude usage meter on boards whose USB port carries no UART (the ESP8266 model — see the table below). See **[ESPNOW.md](ESPNOW.md)** for what changed and why.
+
 The GeekMagic SmallTV is a cheap desk gadget: a little cube with a 1.54" colour screen, an ESP inside, and a USB-C port. This firmware throws away the stock apps and turns it into three things you actually watch. It shows a **stock and crypto ticker** with prices, change, and a sparkline. It flips into a **Claude usage meter** with an animated mascot and your 5-hour and 7-day usage bars. And it becomes a **live plane radar** centred on your location, pulled from a free public feed. One image carries all three; you switch between them in a built-in web UI, and you update over WiFi.
 
 This firmware builds for four boards from one codebase. The original SmallTV runs an **ESP8266**; the **SmallTV-ultra** is the same ESP-12F hardware and screen, but its stock "Ultra" firmware and flash partitions block a normal OTA of this image, so it takes a two-step loader install (see [Flashing](#flashing)); a second version sold under the same "smart weather clock" look uses an **ESP32-C2 (ESP8684)** instead. A third build targets the **NMMiner NM-TV-154** (PCB marked "NM-TV-Miner"), a classic-ESP32 BTC lottery miner in the same cube with the same screen, confirmed working by a community tester in [issue #1](https://github.com/giovi321/smalltv-mod/issues/1). Pick yours below.
