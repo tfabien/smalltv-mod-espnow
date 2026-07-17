@@ -17,8 +17,9 @@ bool usageFresh(uint32_t withinMs);       // true if the last good update is rec
 // device can't reach the daemon (Wi-Fi client isolation) so the daemon pushes.
 bool usageApply(const String& body);      // parse {s,sr,w,wr,st,ok}; true on success
 
-// ESP-NOW receive path: this device's own USB port carries no UART data lines
-// (GeekMagic ESP8266 board), so a companion bridge (any ESP32 with a real USB
-// serial chip) relays the daemon's --serial JSON lines here over ESP-NOW.
-// Idempotent; safe to call every usageInit().
+// ESP-NOW receive path (all board targets): a companion bridge (src/bridge.cpp,
+// any ESP32 with a real USB-serial chip) relays the daemon's --serial JSON
+// lines here over ESP-NOW, so the device never has to join Wi-Fi at all — the
+// point on a locked-down/filtered network, not just on boards whose own USB
+// port carries no UART data lines. Idempotent; safe to call every usageInit().
 void usageEspNowBegin();

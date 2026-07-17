@@ -66,9 +66,13 @@ bool usageApply(const String& body) {
 }
 
 // ---- ESP-NOW receive: bridge relays the daemon's serial JSON lines here ----
-// Only wired up on the ESP8266 target, whose USB port has no UART lines (see
-// README's flashing table) — the ESP32/ESP32-C2 targets have a real USB-serial
-// chip and use the daemon's --serial transport directly, no bridge needed.
+// A bridge board (src/bridge.cpp) forwards clawdmeter-daemon's --serial JSON
+// lines over ESP-NOW, so any of the three targets can get usage data without
+// ever joining Wi-Fi — the point on a locked-down/filtered network (802.1X,
+// captive portal, client isolation) where getting a random IoT device onto
+// the LAN at all is the actual obstacle, not just USB-serial availability.
+// Same {s,sr,w,wr,st,ok} payload, one line per ESP-NOW packet either way; only
+// the receive-callback API differs per chip family.
 #if defined(SMALLTV_ESP8266)
 #include <espnow.h>
 
@@ -89,6 +93,30 @@ void usageEspNowBegin() {
   esp_now_register_recv_cb(onEspNowRecv);
   inited = true;
 }
+
+#elif defined(SMALLTV_ESP32) || defined(SMALLTV_ESP32C2)
+#include <esp_now.h>
+
+// Arduino-ESP32 core 3.x's esp_now_recv_cb_t takes an esp_now_recv_info*
+// (sender address + RSSI metadata), not a bare MAC pointer like the older
+// IDF/ESP8266 signature.
+static void onEspNowRecv(const esp_now_recv_info* info, const uint8_t* data, int len) {
+  (void)info;
+  char buf[192];
+  size_t n = (size_t)len < sizeof(buf) - 1 ? (size_t)len : sizeof(buf) - 1;
+  memcpy(buf, data, n);
+  buf[n] = 0;
+  usageApply(String(buf));
+}
+
+void usageEspNowBegin() {
+  static bool inited = false;
+  if (inited) return;
+  if (esp_now_init() != 0) return;
+  esp_now_register_recv_cb(onEspNowRecv);
+  inited = true;
+}
+
 #else
 void usageEspNowBegin() {}
 #endif

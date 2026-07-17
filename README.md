@@ -17,7 +17,7 @@
 
 > Not affiliated with GeekMagic or Anthropic. This firmware replaces the stock firmware entirely.
 
-> **This is a fork** ([tfabien/smalltv-mod-espnow](https://github.com/tfabien/smalltv-mod-espnow)) of [giovi321/smalltv-mod](https://github.com/giovi321/smalltv-mod), adding an ESP-NOW receive path for the Claude usage meter on boards whose USB port carries no UART (the ESP8266 model — see the table below). See **[ESPNOW.md](ESPNOW.md)** for what changed and why.
+> **This is a fork** ([tfabien/smalltv-mod-espnow](https://github.com/tfabien/smalltv-mod-espnow)) of [giovi321/smalltv-mod](https://github.com/giovi321/smalltv-mod), adding an ESP-NOW receive path for the Claude usage meter on **all four boards** below — so a companion bridge can deliver usage data without the SmallTV ever joining Wi-Fi (useful on locked-down/filtered networks), and incidentally the only way to reach the ESP8266 model's USB-less UART at all. See **[ESPNOW.md](ESPNOW.md)** for what changed and why.
 
 The GeekMagic SmallTV is a cheap desk gadget: a little cube with a 1.54" colour screen, an ESP inside, and a USB-C port. This firmware throws away the stock apps and turns it into three things you actually watch. It shows a **stock and crypto ticker** with prices, change, and a sparkline. It flips into a **Claude usage meter** with an animated mascot and your 5-hour and 7-day usage bars. And it becomes a **live plane radar** centred on your location, pulled from a free public feed. One image carries all three; you switch between them in a built-in web UI, and you update over WiFi.
 
