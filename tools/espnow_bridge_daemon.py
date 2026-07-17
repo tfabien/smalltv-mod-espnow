@@ -4,14 +4,16 @@ ESP-NOW bridge (src/bridge.cpp), styled after clawdmeter-daemon: one small
 tool that shows what the bridge is doing and lets you (re)pair it without
 reflashing.
 
-    python espnow_bridge_daemon.py COM3                # tray icon (default)
-    python espnow_bridge_daemon.py COM3 --no-tray       # headless console
+    python espnow_bridge_daemon.py             # tray icon, pick the port from its Port menu
+    python espnow_bridge_daemon.py COM3        # tray icon, connect to COM3 right away
+    python espnow_bridge_daemon.py COM3 --no-tray   # headless console (port required)
 
 Every line the bridge prints over serial (boot log, "[bridge] send ...",
 "[bridge] delivery: ACKed"/"FAILED", pairing confirmations) is logged to
 ~/.espnow-bridge-daemon.log and shown in the tray tooltip / console.
 
-Tray menu: Pair device..., Unpair device..., Unpair all, Open log, Quit.
+Tray menu: Port (switch board without restarting), Pair device...,
+Unpair device..., Unpair all, Send custom payload..., Open log, Quit.
 Headless console: type any line the bridge itself understands (PAIR ..,
 UNPAIR .., or a raw payload line) and it's sent straight through.
 
@@ -69,6 +71,13 @@ class State:
 state = State()
 _ser: "serial.Serial | None" = None
 _ser_lock = threading.Lock()
+_reader_stop: "threading.Event | None" = None
+_current_port: "str | None" = None
+
+
+def list_ports() -> list:
+    import serial.tools.list_ports
+    return sorted(p.device for p in serial.tools.list_ports.comports())
 
 
 def send_line(line: str) -> None:
@@ -89,13 +98,46 @@ def reader_loop(ser: "serial.Serial", stop: threading.Event) -> None:
         try:
             line = ser.readline().decode("utf-8", errors="replace").rstrip()
         except serial.SerialException:
-            log("Serial read error — bridge disconnected")
-            state.set(connected=False, last_line="Disconnected")
-            stop.set()
+            if not stop.is_set():   # a real disconnect, not us closing it to switch ports
+                log("Serial read error — bridge disconnected")
+                state.set(connected=False, last_line="Disconnected")
             return
         if line:
             log(line)
             state.set(last_line=line)
+
+
+def disconnect() -> None:
+    global _ser, _reader_stop
+    if _reader_stop:
+        _reader_stop.set()
+    with _ser_lock:
+        if _ser is not None:
+            try:
+                _ser.close()
+            except Exception:
+                pass
+            _ser = None
+
+
+def connect(port: str) -> bool:
+    """Switch to a different serial port at runtime — no restart needed."""
+    global _ser, _reader_stop, _current_port
+    disconnect()
+    log(f"Connecting to bridge on {port}...")
+    try:
+        ser = serial.Serial(port, 115200, timeout=1)
+    except serial.SerialException as e:
+        log(f"Could not open {port}: {e}")
+        state.set(connected=False, last_line=f"Error: {e}")
+        return False
+    with _ser_lock:
+        _ser = ser
+    _current_port = port
+    state.set(connected=True, last_line="Connected")
+    _reader_stop = threading.Event()
+    threading.Thread(target=reader_loop, args=(ser, _reader_stop), daemon=True).start()
+    return True
 
 
 # ---- headless console ------------------------------------------------------
@@ -118,15 +160,45 @@ def run_console() -> None:
 
 # ---- tray icon --------------------------------------------------------------
 
-def _make_icon_image(color):
+def _find_bold_font(size):
+    from PIL import ImageFont
+    for candidate in ("arialbd.ttf", "Arial Bold.ttf", "DejaVuSans-Bold.ttf",
+                      "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+        try:
+            return ImageFont.truetype(candidate, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def _make_icon_image(connected: bool):
+    """"ESP" on black over "NOW" on red, split by a wavy line — drawn large
+    then downsized so the text stays crisp at actual tray size. A small dot
+    in the corner (green/gray) carries connection status, since the ESP/NOW
+    colors themselves are fixed."""
     from PIL import Image, ImageDraw
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    import math
+
+    N = 256
+    img = Image.new("RGB", (N, N), (0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.ellipse((8, 8, 56, 56), fill=color)
-    return img
+
+    base, amp, period = N // 2, 10, N / 1.5
+    wave = [(x, base + amp * math.sin(2 * math.pi * x / period)) for x in range(0, N + 1, 4)]
+    d.polygon([(0, N), *wave, (N, N)], fill=(214, 30, 30))
+    d.line(wave, fill=(255, 255, 255), width=5, joint="curve")
+
+    font = _find_bold_font(72)
+    d.text((N / 2, base / 2), "ESP", font=font, fill=(255, 255, 255), anchor="mm")
+    d.text((N / 2, base + (N - base) / 2), "NOW", font=font, fill=(255, 255, 255), anchor="mm")
+
+    dot_color = (70, 200, 90) if connected else (140, 140, 140)
+    d.ellipse((N - 56, N - 56, N - 16, N - 16), fill=dot_color, outline=(0, 0, 0), width=4)
+
+    return img.resize((64, 64), Image.LANCZOS)
 
 
-def _run_dialog(title: str, fields: list, initial: list) -> int:
+def _run_dialog(title: str, fields: list, initial: list, width: int = 32) -> int:
     """Standalone input dialog (its own process/main thread — a Tk window made
     on pystray's callback thread renders but can't take keyboard input)."""
     try:
@@ -146,7 +218,7 @@ def _run_dialog(title: str, fields: list, initial: list) -> int:
     for i, label in enumerate(fields):
         tk.Label(root, text=label).pack(padx=16, pady=(12 if i == 0 else 4, 0), anchor="w")
         v = tk.StringVar(value=initial[i] if i < len(initial) else "")
-        e = tk.Entry(root, textvariable=v, width=32)
+        e = tk.Entry(root, textvariable=v, width=width)
         e.pack(padx=16, pady=(0, 4), fill="x")
         vars_.append(v)
         if i == 0:
@@ -199,7 +271,7 @@ def _open_dialog(kind: str, title: str, fields: list, initial: list):
     return out[3:].split("\t")
 
 
-def run_with_tray(port: str) -> None:
+def run_with_tray() -> None:
     import pystray
 
     def on_pair(icon, item):
@@ -236,21 +308,46 @@ def run_with_tray(port: str) -> None:
         except Exception as e:
             log(f"Could not open log: {e}")
 
+    def on_send_custom(icon, item):
+        vals = _open_dialog("send", "espnow-bridge — send custom payload",
+                             ["Payload (sent as-is, one line, to every paired peer):"],
+                             ['{"s":42,"sr":123,"w":7,"wr":5555,"st":"allowed","ok":true}'])
+        if not vals:
+            return
+        payload = vals[0].strip()
+        if payload:
+            send_line(payload)
+
     def on_quit(icon, item):
         icon.stop()
 
+    def port_item(p):
+        # Bind `p` via a closure (def), not a default arg, so pystray's 2-arg
+        # action callback stays (icon, item) — same pattern as clawdmeter-daemon.
+        def _select(icon, item):
+            connect(p)
+        return pystray.MenuItem(p, _select, checked=lambda item: _current_port == p, radio=True)
+
+    def port_items():
+        ports = list_ports()
+        if not ports:
+            return [pystray.MenuItem("(no ports found)", None, enabled=False)]
+        return [port_item(p) for p in ports]
+
     menu = pystray.Menu(
-        pystray.MenuItem(lambda _: f"espnow-bridge — {port}", None, enabled=False),
+        pystray.MenuItem(lambda _: f"espnow-bridge — {_current_port or '(no port)'}", None, enabled=False),
         pystray.MenuItem(lambda _: state.get()[1][:40], None, enabled=False),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Port", pystray.Menu(port_items)),
         pystray.MenuItem("Pair device...", on_pair),
         pystray.MenuItem("Unpair device...", on_unpair),
         pystray.MenuItem("Unpair all", on_unpair_all),
+        pystray.MenuItem("Send custom payload...", on_send_custom),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Open log", on_open_log),
         pystray.MenuItem("Quit", on_quit),
     )
-    icons = {True: _make_icon_image((70, 200, 90, 255)), False: _make_icon_image((200, 70, 55, 255))}
+    icons = {True: _make_icon_image(True), False: _make_icon_image(False)}
     icon = pystray.Icon("espnow-bridge", icon=icons[False], title="espnow-bridge — connecting...", menu=menu)
 
     def updater():
@@ -260,7 +357,7 @@ def run_with_tray(port: str) -> None:
             if connected != last_connected:
                 last_connected = connected
                 icon.icon = icons[connected]
-            icon.title = f"espnow-bridge ({port})\n{last_line}"[:127]
+            icon.title = f"espnow-bridge ({_current_port or '?'})\n{last_line}"[:127]
             time.sleep(1)
 
     threading.Thread(target=updater, daemon=True).start()
@@ -275,22 +372,10 @@ def tray_backend_available() -> bool:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Monitor and pair the ESP-NOW bridge.")
-    ap.add_argument("port", help="e.g. COM3, /dev/ttyUSB0")
+    ap.add_argument("port", nargs="?", default=None,
+                    help="e.g. COM3, /dev/ttyUSB0 — omit to pick one later from the tray's Port menu")
     ap.add_argument("--no-tray", action="store_true", help="run headless in the console")
     args = ap.parse_args()
-
-    log(f"Connecting to bridge on {args.port}...")
-    try:
-        ser = serial.Serial(args.port, 115200, timeout=1)
-    except serial.SerialException as e:
-        sys.exit(f"Could not open {args.port}: {e}")
-
-    global _ser
-    _ser = ser
-    state.set(connected=True, last_line="Connected")
-
-    stop = threading.Event()
-    threading.Thread(target=reader_loop, args=(ser, stop), daemon=True).start()
 
     use_tray = not args.no_tray
     if use_tray and not tray_backend_available():
@@ -304,14 +389,20 @@ def main() -> None:
             log("pystray/Pillow not installed - running headless (pip install pystray Pillow)")
             use_tray = False
 
+    if not args.port and not use_tray:
+        sys.exit("A port is required in --no-tray mode (no menu to pick one from).")
+    if args.port:
+        connect(args.port)
+    else:
+        log(f"No port given — pick one from the tray's Port menu. Available: {list_ports() or 'none found'}")
+
     try:
         if use_tray:
-            run_with_tray(args.port)
+            run_with_tray()
         else:
             run_console()
     finally:
-        stop.set()
-        ser.close()
+        disconnect()
         log("Stopped")
 
 
@@ -322,6 +413,11 @@ if __name__ == "__main__":
             sys.exit(_run_dialog("espnow-bridge — pair device",
                                   ["MAC (AA:BB:CC:DD:EE:FF), or FF:FF:FF:FF:FF:FF for broadcast:", "Channel:"],
                                   ["", "1"]))
+        elif kind == "send":
+            sys.exit(_run_dialog("espnow-bridge — send custom payload",
+                                  ["Payload (sent as-is, one line, to every paired peer):"],
+                                  ['{"s":42,"sr":123,"w":7,"wr":5555,"st":"allowed","ok":true}'],
+                                  width=64))
         else:
             sys.exit(_run_dialog("espnow-bridge — unpair device", ["MAC (AA:BB:CC:DD:EE:FF):"], [""]))
     main()
