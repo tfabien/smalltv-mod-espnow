@@ -140,6 +140,23 @@ If you want the MAC/channel again later, just factory-reset or wait for a
 reboot — the setup screen (and its 15-minute window) reappears each time
 there's no saved Wi-Fi.
 
+## Monitoring and pairing the bridge
+
+`tools/espnow_bridge_daemon.py` is a small tray-icon tool (styled after
+clawdmeter-daemon) that stays connected to the bridge: it streams every line
+the bridge prints (delivery ACKs, pairing confirmations) to a log file and
+the tray tooltip, and its menu has **Pair device...** / **Unpair device...**
+/ **Unpair all** dialogs — no reflash, no typing raw serial commands.
+
+```
+pip install pyserial pystray Pillow
+python tools/espnow_bridge_daemon.py COM3
+python tools/espnow_bridge_daemon.py COM3 --no-tray   # headless console instead
+```
+
+For one-off scripting rather than a standing monitor, `tools/pair_bridge.py`
+(see below) sends the same PAIR/UNPAIR commands non-interactively.
+
 ## Testing without the daemon
 
 `tools/send_test_usage.py` writes one usage-contract JSON line straight to a
